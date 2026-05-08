@@ -28,12 +28,21 @@ After setup, Ignition becomes a persistent management dashboard:
 - License status
 - Discover 1,200+ integrations
 
+## Browser URLs
+
+Once Ignition is running, use these addresses in your browser (replace `<ip>` with your unit's IP address):
+
+| URL | What it does |
+|---|---|
+| `http://<ip>:18792` | Ignition setup wizard & dashboard |
+| `http://<ip>:18789` | OpenClaw gateway dashboard |
+| `http://<ip>:18790` | Terminal (command line access) |
+
 ## Requirements
 
-- StrataOS (FreeBSD + bhyve + NixOS)
-- OpenClaw gateway
+- StrataOS unit on your local network
 - Telegram account
-- AI provider API key (OpenRouter recommended — free tier available)
+- AI provider API key (OpenRouter recommended — free tier available at openrouter.ai)
 
 ---
 
