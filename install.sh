@@ -70,7 +70,7 @@ Wants=network-online.target
 [Service]
 Type=simple
 WorkingDirectory=${INSTALL_DIR}
-ExecStart=/bin/sh -c 'export PATH="/run/current-system/sw/bin:/nix/var/nix/profiles/default/bin:\$PATH" && cd ${INSTALL_DIR} && ${NIX_SHELL_BIN} -p python3Packages.flask python3Packages.requests --run "python -m app.main"'
+ExecStart=/bin/sh -c 'export PATH="/home/oliver/.npm-global/bin:/run/current-system/sw/bin:/nix/var/nix/profiles/default/bin:\$PATH" && cd ${INSTALL_DIR} && ${NIX_SHELL_BIN} -p python3Packages.flask python3Packages.requests --run "python -m app.main"'
 Restart=on-failure
 RestartSec=10
 StandardOutput=append:/tmp/ignition.log
