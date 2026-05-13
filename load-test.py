@@ -1,123 +1,120 @@
 #!/usr/bin/env python3
 """
-Ignition Load Tester — sends concurrent prompts to all 5 seat agents
-via the OpenClaw gateway API and measures response times.
+StrataWerks Ignition Load Tester v2
+Simulates 5 concurrent AI requests via OpenRouter — same as what
+each seat agent does when processing a user message.
 
-Run on beta unit: python3 load-test.py
+Run: python3 /tmp/load-test.py
 """
-
 import time
 import json
 import threading
 import urllib.request
-import urllib.error
-from datetime import datetime
 
-GATEWAY_URL = "http://localhost:18789"
+API_KEY = open("/home/oliver/.openclaw/.env").read()
+# Parse OPENROUTER_API_KEY from .env
+for line in API_KEY.splitlines():
+    if "OPENROUTER_API_KEY" in line:
+        API_KEY = line.split("=", 1)[1].strip().strip('"')
+        break
+
 SEATS = ["seat1", "seat2", "seat3", "seat4", "seat5"]
-
 PROMPTS = [
-    "What is 2 + 2? Answer in one word.",
-    "Name one planet in our solar system.",
-    "What color is the sky? One word.",
-    "Complete this: The capital of France is ___.",
-    "What year did World War 2 end? Numbers only.",
+    "Count from 1 to 20, one number per line.",
+    "List the planets in order from the sun.",
+    "Write a haiku about mountains.",
+    "Name 10 countries that start with the letter C.",
+    "Explain what RAM is in 3 sentences.",
 ]
 
 results = {}
 lock = threading.Lock()
 
 
-def send_to_agent(seat_id, prompt, prompt_num):
-    """Send a message to an agent and measure response time."""
+def call_llm(seat_id, prompt, round_num):
     start = time.time()
     try:
         payload = json.dumps({
-            "message": prompt,
-            "agentId": seat_id,
+            "model": "openai/gpt-4o-mini",
+            "messages": [{"role": "user", "content": prompt}],
+            "max_tokens": 200,
         }).encode()
 
         req = urllib.request.Request(
-            f"{GATEWAY_URL}/api/chat",
+            "https://openrouter.ai/api/v1/chat/completions",
             data=payload,
-            headers={"Content-Type": "application/json"},
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {API_KEY}",
+                "HTTP-Referer": "https://stratawerks.ai",
+                "X-Title": f"StrataWerks-LoadTest-{seat_id}",
+            },
             method="POST"
         )
         with urllib.request.urlopen(req, timeout=60) as resp:
-            body = resp.read().decode()
+            body = json.loads(resp.read().decode())
             elapsed = time.time() - start
+            tokens = body.get("usage", {}).get("total_tokens", 0)
+            preview = body["choices"][0]["message"]["content"][:60].replace("\n", " ")
             with lock:
-                results[seat_id] = results.get(seat_id, [])
-                results[seat_id].append({
-                    "prompt_num": prompt_num,
-                    "elapsed": round(elapsed, 2),
-                    "status": "ok",
-                    "response_len": len(body),
-                })
-            print(f"  ✓ {seat_id} [{prompt_num}] — {elapsed:.1f}s")
+                results.setdefault(seat_id, []).append(
+                    {"round": round_num, "elapsed": round(elapsed, 2), "tokens": tokens, "status": "ok"}
+                )
+            print(f"  ✓ {seat_id} [{round_num}] {elapsed:.1f}s / {tokens}tok — \"{preview}…\"")
 
-    except urllib.error.HTTPError as e:
-        elapsed = time.time() - start
-        print(f"  ✗ {seat_id} [{prompt_num}] — HTTP {e.code} ({elapsed:.1f}s)")
-        with lock:
-            results[seat_id] = results.get(seat_id, [])
-            results[seat_id].append({"prompt_num": prompt_num, "elapsed": round(elapsed, 2), "status": f"http_{e.code}"})
     except Exception as e:
         elapsed = time.time() - start
-        print(f"  ✗ {seat_id} [{prompt_num}] — {type(e).__name__}: {e} ({elapsed:.1f}s)")
+        print(f"  ✗ {seat_id} [{round_num}] ERROR: {e} ({elapsed:.1f}s)")
         with lock:
-            results[seat_id] = results.get(seat_id, [])
-            results[seat_id].append({"prompt_num": prompt_num, "elapsed": round(elapsed, 2), "status": "error"})
+            results.setdefault(seat_id, []).append(
+                {"round": round_num, "elapsed": round(elapsed, 2), "tokens": 0, "status": "error"}
+            )
 
 
 def run_round(round_num):
-    """Fire all 5 seats simultaneously with a prompt."""
     prompt = PROMPTS[round_num % len(PROMPTS)]
-    print(f"\nRound {round_num + 1} — firing all 5 seats concurrently")
-    print(f"  Prompt: \"{prompt}\"")
+    print(f"\nRound {round_num + 1} — 5 concurrent requests")
+    print(f"  Prompt: \"{prompt[:60]}\"")
 
-    threads = []
-    for seat in SEATS:
-        t = threading.Thread(target=send_to_agent, args=(seat, prompt, round_num + 1))
-        threads.append(t)
-
-    # Launch all simultaneously
+    threads = [
+        threading.Thread(target=call_llm, args=(seat, prompt, round_num + 1))
+        for seat in SEATS
+    ]
+    t0 = time.time()
     for t in threads:
         t.start()
-
-    # Wait for all to complete
     for t in threads:
         t.join(timeout=90)
+    print(f"  All done in {time.time() - t0:.1f}s wall time")
 
 
 def print_summary():
-    print("\n" + "=" * 50)
+    print("\n" + "=" * 52)
     print("SUMMARY")
-    print("=" * 50)
+    print("=" * 52)
+    total_tokens = 0
     for seat in SEATS:
         runs = results.get(seat, [])
-        if not runs:
-            print(f"  {seat}: no data")
-            continue
         ok = [r for r in runs if r["status"] == "ok"]
         avg = sum(r["elapsed"] for r in ok) / len(ok) if ok else 0
-        print(f"  {seat}: {len(ok)}/{len(runs)} ok, avg {avg:.1f}s")
+        toks = sum(r["tokens"] for r in ok)
+        total_tokens += toks
+        print(f"  {seat:6}  {len(ok)}/{len(runs)} ok  avg {avg:.1f}s  {toks} tokens")
+    print(f"\n  Total tokens used: {total_tokens}")
+    print("=" * 52)
 
 
 if __name__ == "__main__":
-    print("=" * 50)
-    print("StrataWerks Ignition Load Tester")
-    print(f"Target: {GATEWAY_URL}")
-    print(f"Seats:  {', '.join(SEATS)}")
-    print("=" * 50)
+    print("=" * 52)
+    print("StrataWerks Ignition Load Tester v2")
+    print(f"Model: openai/gpt-4o-mini (via OpenRouter)")
+    print(f"Seats: {len(SEATS)}  |  Rounds: 3")
+    print("=" * 52)
 
-    ROUNDS = 3  # Change to run more rounds
-
-    for i in range(ROUNDS):
+    for i in range(3):
         run_round(i)
-        if i < ROUNDS - 1:
-            print(f"\n  Waiting 5s before next round...")
+        if i < 2:
+            print(f"\n  Cooling down 5s...")
             time.sleep(5)
 
     print_summary()
-    print("\nDone. Check btop for resource usage during the test.")
