@@ -55,6 +55,13 @@ log "Files installed."
 log "Creating autostart service..."
 mkdir -p "$SERVICE_DIR"
 
+# Find nix-shell full path (NixOS services don't inherit user PATH)
+NIX_SHELL_BIN=$(which nix-shell 2>/dev/null || \
+    ls /run/current-system/sw/bin/nix-shell 2>/dev/null || \
+    ls /nix/var/nix/profiles/default/bin/nix-shell 2>/dev/null || \
+    find /nix -name nix-shell -type f 2>/dev/null | head -1 || \
+    echo "nix-shell")
+
 cat > "$SERVICE_DIR/${SERVICE_NAME}.service" << EOF
 [Unit]
 Description=StrataOS Ignition Setup Wizard
@@ -64,7 +71,7 @@ Wants=network-online.target
 [Service]
 Type=simple
 WorkingDirectory=${INSTALL_DIR}
-ExecStart=/bin/sh -c 'cd ${INSTALL_DIR} && nix-shell -p python3Packages.flask python3Packages.requests --run "python -m app.main"'
+ExecStart=/bin/sh -c 'export PATH="/run/current-system/sw/bin:/nix/var/nix/profiles/default/bin:\$PATH" && cd ${INSTALL_DIR} && ${NIX_SHELL_BIN} -p python3Packages.flask python3Packages.requests --run "python -m app.main"'
 Restart=on-failure
 RestartSec=10
 StandardOutput=append:/tmp/ignition.log
@@ -88,7 +95,7 @@ systemctl --user enable "$SERVICE_NAME" 2>/dev/null || true
 systemctl --user start "$SERVICE_NAME" 2>/dev/null || {
     # systemd not available — start directly
     warn "systemd not available, starting directly..."
-    nohup nix-shell -p python3Packages.flask python3Packages.requests \
+    nohup "$NIX_SHELL_BIN" -p python3Packages.flask python3Packages.requests \
         --run "python -m app.main" \
         > /tmp/ignition.log 2>&1 &
     echo $! > /tmp/ignition.pid
