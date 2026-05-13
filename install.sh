@@ -43,8 +43,7 @@ fi
 # ── 2. Extract ───────────────────────────────────────────
 log "Installing to $INSTALL_DIR..."
 mkdir -p "$INSTALL_DIR"
-tar xzf "$TMP_TAR" -C "/home/oliver/" 2>/dev/null || \
-    tar xzf "$TMP_TAR" -C "/home/oliver/" --strip-components=1
+tar xzf "$TMP_TAR" -C "$INSTALL_DIR"
 rm -f "$TMP_TAR"
 
 # Verify install
