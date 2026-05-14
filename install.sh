@@ -61,6 +61,16 @@ NIX_SHELL_BIN=$(which nix-shell 2>/dev/null || \
     find /nix -name nix-shell -type f 2>/dev/null | head -1 || \
     echo "nix-shell")
 
+# Generate IGNITION_SECRET if not already set
+ENV_FILE="${INSTALL_DIR}/.env"
+if ! grep -q "IGNITION_SECRET" "$ENV_FILE" 2>/dev/null; then
+    IGNITION_SECRET=$(python3 -c "import secrets; print(secrets.token_hex(32))" 2>/dev/null || \
+                      openssl rand -hex 32 2>/dev/null || \
+                      cat /dev/urandom | tr -dc 'a-f0-9' | head -c 64)
+    echo "IGNITION_SECRET=${IGNITION_SECRET}" >> "$ENV_FILE"
+    log "Generated Ignition secret token."
+fi
+
 cat > "$SERVICE_DIR/${SERVICE_NAME}.service" << EOF
 [Unit]
 Description=StrataOS Ignition Setup Wizard
@@ -70,6 +80,7 @@ Wants=network-online.target
 [Service]
 Type=simple
 WorkingDirectory=${INSTALL_DIR}
+EnvironmentFile=-${INSTALL_DIR}/.env
 ExecStart=/bin/sh -c 'export PATH="/home/oliver/.npm-global/bin:/run/current-system/sw/bin:/nix/var/nix/profiles/default/bin:\$PATH" && cd ${INSTALL_DIR} && ${NIX_SHELL_BIN} -p python3Packages.flask python3Packages.requests --run "python -m app.main"'
 Restart=on-failure
 RestartSec=10
